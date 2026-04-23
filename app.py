@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import tempfile
@@ -9,6 +10,11 @@ from markitdown import MarkItDown
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Max seconds a single conversion may run before we give up and return 504.
+# Should be a bit lower than the client-side timeout so clients get a proper
+# HTTP response instead of an abort.
+CONVERT_TIMEOUT_SECONDS = int(os.getenv("CONVERT_TIMEOUT_SECONDS", "540"))
 
 app = FastAPI(
     title="MarkItDown API Server",
@@ -110,9 +116,25 @@ async def process_file(file: UploadFile = File(...)):
             temp_file_path = temp_file.name
             logger.info(f"Temporary file path: {temp_file_path}")
 
-        # Convert the file to markdown
-        markdown_content = convert_to_md(temp_file_path)
+        # Convert the file to markdown in a worker thread so the event loop
+        # stays responsive, with a hard timeout to avoid stuck workers.
+        loop = asyncio.get_event_loop()
+        markdown_content = await asyncio.wait_for(
+            loop.run_in_executor(None, convert_to_md, temp_file_path),
+            timeout=CONVERT_TIMEOUT_SECONDS,
+        )
         logger.info("File converted to markdown successfully")
+
+    except asyncio.TimeoutError:
+        logger.error(
+            f"Conversion timed out after {CONVERT_TIMEOUT_SECONDS}s: {file.filename}"
+        )
+        return JSONResponse(
+            content={
+                "error": f"Conversion timed out after {CONVERT_TIMEOUT_SECONDS}s"
+            },
+            status_code=504,
+        )
 
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
