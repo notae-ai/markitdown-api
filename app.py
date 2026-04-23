@@ -5,7 +5,30 @@ import tempfile
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-from markitdown import MarkItDown
+
+# Patch openpyxl's number caster to tolerate NaN/Inf in numeric cells.
+# Some Excel files (e.g. exports from external tools) store the literal
+# string "NaN" with type="n", which crashes openpyxl's int() cast.
+# Must run before `from markitdown import MarkItDown` so the patched
+# function is in place when MarkItDown loads openpyxl.
+import openpyxl.worksheet._reader as _openpyxl_reader
+
+_original_cast_number = _openpyxl_reader._cast_number
+
+
+def _safe_cast_number(value):
+    try:
+        return _original_cast_number(value)
+    except ValueError:
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+
+
+_openpyxl_reader._cast_number = _safe_cast_number
+
+from markitdown import MarkItDown  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
