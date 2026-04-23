@@ -38,7 +38,7 @@ USER appuser
 # Copy only the application code with correct ownership using --chown
 COPY --chown=appuser:appuser . /app/
 
-# Make port available
-EXPOSE 8490
+# Make port available (override at runtime via PORT env var)
+EXPOSE 8500
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8490"]
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8500}"]
