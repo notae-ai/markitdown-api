@@ -30,6 +30,48 @@ _openpyxl_reader._cast_number = _safe_cast_number
 
 from markitdown import MarkItDown  # noqa: E402
 
+# Patch XlsxConverter/XlsConverter.convert() to render NaN cells as empty
+# strings in the intermediate HTML, instead of the literal "NaN". Reduces
+# token noise and avoids confusing downstream LLM consumers that treat
+# "NaN" as actual data.
+import pandas as pd  # noqa: E402
+from markitdown._base_converter import DocumentConverterResult  # noqa: E402
+from markitdown.converters import _xlsx_converter  # noqa: E402
+
+
+def _clean_xlsx_convert(self, file_stream, stream_info, **kwargs):
+    sheets = pd.read_excel(file_stream, sheet_name=None, engine="openpyxl")
+    md_content = ""
+    for s in sheets:
+        md_content += f"## {s}\n"
+        html_content = sheets[s].to_html(index=False, na_rep="")
+        md_content += (
+            self._html_converter.convert_string(
+                html_content, **kwargs
+            ).markdown.strip()
+            + "\n\n"
+        )
+    return DocumentConverterResult(markdown=md_content.strip())
+
+
+def _clean_xls_convert(self, file_stream, stream_info, **kwargs):
+    sheets = pd.read_excel(file_stream, sheet_name=None, engine="xlrd")
+    md_content = ""
+    for s in sheets:
+        md_content += f"## {s}\n"
+        html_content = sheets[s].to_html(index=False, na_rep="")
+        md_content += (
+            self._html_converter.convert_string(
+                html_content, **kwargs
+            ).markdown.strip()
+            + "\n\n"
+        )
+    return DocumentConverterResult(markdown=md_content.strip())
+
+
+_xlsx_converter.XlsxConverter.convert = _clean_xlsx_convert
+_xlsx_converter.XlsConverter.convert = _clean_xls_convert
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
