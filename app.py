@@ -28,6 +28,27 @@ def _safe_cast_number(value):
 
 _openpyxl_reader._cast_number = _safe_cast_number
 
+# Patch openpyxl's Fill parser to tolerate empty <fill/> elements.
+# Some Excel files (e.g. Pappers exports) pad the <fills> collection with
+# bare <fill/> elements that have no patternFill/gradientFill child. Excel
+# tolerates these, but openpyxl's Fill.from_tree returns None for them, and
+# that None then fails the stylesheet's typed fills sequence with
+# "expected <class 'openpyxl.styles.fills.Fill'>", crashing the whole
+# conversion. Substitute a default (empty) PatternFill so the workbook loads.
+# Must run before `from markitdown import MarkItDown` so the patched function
+# is in place when MarkItDown loads openpyxl.
+import openpyxl.styles.fills as _openpyxl_fills
+
+_original_fill_from_tree = _openpyxl_fills.Fill.from_tree.__func__
+
+
+def _safe_fill_from_tree(cls, el):
+    fill = _original_fill_from_tree(cls, el)
+    return _openpyxl_fills.PatternFill() if fill is None else fill
+
+
+_openpyxl_fills.Fill.from_tree = classmethod(_safe_fill_from_tree)
+
 from markitdown import MarkItDown  # noqa: E402
 
 # Patch XlsxConverter/XlsConverter.convert() to render NaN cells as empty
