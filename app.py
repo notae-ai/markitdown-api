@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import tempfile
 
 from fastapi import FastAPI, File, UploadFile
@@ -58,6 +59,29 @@ _openpyxl_fills.Fill.from_tree = classmethod(_safe_fill_from_tree)
 import openpyxl.styles.fonts as _openpyxl_fonts
 
 _openpyxl_fonts.Font.family.max = 99
+
+# Patch openpyxl's color parser to tolerate malformed rgb values. openpyxl
+# requires colors as 8-hex aRGB (it only auto-pads the 6-hex case), and raises
+# "ValueError: Colors must be aRGB hex values" for anything else. Some exports
+# (notably our own AI_GENERATED xlsx) emit malformed colors like rgb="FFFE9"
+# (5 hex), which crashes the whole conversion. Since we only extract text and
+# never re-save, the exact color is irrelevant — coerce any invalid value to a
+# valid 8-hex aRGB so the workbook loads. 6-hex is left to openpyxl's padding.
+import openpyxl.styles.colors as _openpyxl_colors
+
+_ARGB8_RE = re.compile(r"^[A-Fa-f0-9]{8}$")
+_original_rgb_set = _openpyxl_colors.RGB.__set__
+
+
+def _safe_rgb_set(self, instance, value):
+    if isinstance(value, str) and value and not _ARGB8_RE.match(value):
+        hexpart = re.sub(r"[^A-Fa-f0-9]", "", value)
+        if len(hexpart) != 6:  # 6-hex handled by openpyxl; normalize the rest
+            value = "FF" + (hexpart.rjust(6, "0")[:6] if hexpart else "000000")
+    return _original_rgb_set(self, instance, value)
+
+
+_openpyxl_colors.RGB.__set__ = _safe_rgb_set
 
 from markitdown import MarkItDown  # noqa: E402
 

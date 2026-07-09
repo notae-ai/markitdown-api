@@ -41,6 +41,11 @@ patché). Patchs en place :
 - `Font.family.max = 99` — relâche le plafond openpyxl `NestedMinMax(min=0, max=14)` sur
   la police : des exports écrivent `<font><family val="34"/>` (Excel l'ignore) → openpyxl
   jette `ValueError: Max value is 14`, remonté en « could not read stylesheet / invalid XML ».
+- `_safe_rgb_set` — normalise les couleurs `rgb` malformées : openpyxl exige du 8-hex aRGB
+  (il ne pad que le cas 6-hex) et jette `ValueError: Colors must be aRGB hex values` sinon.
+  Des exports (notamment nos xlsx `AI_GENERATED`) écrivent `rgb="FFFE9"` (5 hex) → coerce
+  vers un 8-hex valide. ⚠️ **Cause racine côté source** : notre générateur Excel produit ces
+  couleurs invalides — à corriger aussi en amont (émettre du 8-hex ARGB).
 
 Ces patchs ne touchent que des **métadonnées de style** (remplissage, police), jamais les
 **valeurs de cellules** (lues par `pd.read_excel`) → aucun impact sur le texte extrait des
