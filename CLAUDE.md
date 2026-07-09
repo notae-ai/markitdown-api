@@ -38,10 +38,29 @@ patché). Patchs en place :
 - `_safe_fill_from_tree` — tolère les `<fill/>` **vides** dans `xl/styles.xml` (openpyxl
   renvoie `None` → casse la séquence typée `fills` avec
   `expected <class 'openpyxl.styles.fills.Fill'>`). Substitue un `PatternFill` par défaut.
+- `Font.family.max = 99` — relâche le plafond openpyxl `NestedMinMax(min=0, max=14)` sur
+  la police : des exports écrivent `<font><family val="34"/>` (Excel l'ignore) → openpyxl
+  jette `ValueError: Max value is 14`, remonté en « could not read stylesheet / invalid XML ».
+
+Ces patchs ne touchent que des **métadonnées de style** (remplissage, police), jamais les
+**valeurs de cellules** (lues par `pd.read_excel`) → aucun impact sur le texte extrait des
+fichiers sains ; ils ne se déclenchent que sur les fichiers malformés.
+
+Autre fix connexe (pas un monkeypatch openpyxl) : `/process_file` écrit le fichier temp
+avec le **suffixe d'extension** dérivé de `file.filename` (`NamedTemporaryFile(suffix=ext)`).
+Sans ça, MarkItDown devine le type au contenu et **misroute** les Excel valides
+(xlsx → PptxConverter, ou « no converter attempted » pour `.xls`/`.xlsx`).
 
 ➡️ Tout nouveau fix « fichier X malformé qui plante la conversion » suit ce même
 pattern : monkeypatch openpyxl (ou le converter MarkItDown) en tête de `app.py`, avant
 l'import markitdown. Toujours reproduire le crash sur un fichier réel avant/après.
+
+⚠️ **Couplage version openpyxl** — les monkeypatches (`Fill.from_tree.__func__`,
+`Font.family.max`) touchent des internes d'openpyxl (3.1.5, épinglé transitivement par
+`markitdown==0.1.5`). Un bump openpyxl/markitdown peut casser ces lignes → le service
+**throw à l'import** (fail-fast, pas de corruption silencieuse). Après toute montée de
+version : re-valider les 3 patchs sur des fichiers réels. Pas de CI de tests dans ce repo →
+valider en **canary** (1 fichier par catégorie) avant toute campagne de re-processing.
 
 ## Déploiement — Coolify build le Dockerfile depuis le repo
 

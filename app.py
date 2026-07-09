@@ -49,6 +49,16 @@ def _safe_fill_from_tree(cls, el):
 
 _openpyxl_fills.Fill.from_tree = classmethod(_safe_fill_from_tree)
 
+# Patch openpyxl's Font.family ceiling. OOXML font family is normally 0-14, and
+# openpyxl enforces that with NestedMinMax(min=0, max=14). Some Excel exports
+# write out-of-range values (e.g. family="34"); Excel ignores them, but openpyxl
+# raises "ValueError: Max value is 14" while parsing the stylesheet, crashing the
+# whole conversion. We only extract text (never re-save), so the exact family
+# value is irrelevant — relax the ceiling so the workbook loads.
+import openpyxl.styles.fonts as _openpyxl_fonts
+
+_openpyxl_fonts.Font.family.max = 99
+
 from markitdown import MarkItDown  # noqa: E402
 
 # Patch XlsxConverter/XlsConverter.convert() to render NaN cells as empty
@@ -196,8 +206,15 @@ async def process_file(file: UploadFile = File(...)):
         return JSONResponse(content={"error": "File type not allowed"}, status_code=400)
 
     try:
+        # Preserve the original file extension on the temp file. MarkItDown
+        # selects its converter primarily from the path extension; without it,
+        # it must guess the type from content and misroutes valid Excel files
+        # (xlsx -> PptxConverter, or "no converter attempted" for .xls/.xlsx).
+        # Falls back to no suffix when the filename has no extension.
+        _, ext = os.path.splitext(file.filename or "")
+
         # Save the file to a temporary directory
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
             temp_file.write(await file.read())
             temp_file_path = temp_file.name
             logger.info(f"Temporary file path: {temp_file_path}")
